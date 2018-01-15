@@ -8,6 +8,7 @@ import (
 	"os"
 
 	"github.com/fractalqb/xsx"
+	"github.com/fractalqb/xsx/gem"
 	"github.com/fractalqb/xsx/table"
 )
 
@@ -67,7 +68,10 @@ func (nm *NameMap) Load(rd io.Reader) (err error) {
 		if err != nil {
 			return err
 		}
-		nm.loadTerm(row)
+		err := nm.loadTerm(row)
+		if err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -97,10 +101,18 @@ func (nm *NameMap) loadDoms(xrd *xsx.PullParser) (table.Definition, error) {
 	return tDef, nil
 }
 
-func (nm *NameMap) loadTerm(term []string) {
+func (nm *NameMap) loadTerm(term []gem.Expr) error {
+	tStrs := make([]string, len(term))
 	for i := 0; i < len(nm.domIdxs); i++ {
-		nm.trmMaps[i][term[i]] = term
+		switch atom := term[i].(type) {
+		case *gem.Atom:
+			tStrs[i] = atom.Str
+			nm.trmMaps[i][atom.Str] = tStrs
+		default:
+			return fmt.Errorf("name-map load: item %d is not an atom", i)
+		}
 	}
+	return nil
 }
 
 func (nm *NameMap) Save(wr io.Writer) (err error) {

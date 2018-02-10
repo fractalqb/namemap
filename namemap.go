@@ -143,6 +143,13 @@ func (nm *NameMap) Save(wr io.Writer) (err error) {
 	return nil
 }
 
+func (nm *NameMap) ForEach(domain int, apply func(value string)) {
+	tmap := nm.trmMaps[domain]
+	for t, _ := range tmap {
+		apply(t)
+	}
+}
+
 type UnknownDomain struct {
 	MapHint    string
 	DomainHint string

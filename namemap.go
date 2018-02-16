@@ -30,14 +30,32 @@ func (nm *NameMap) DomainIdx(domain string) int {
 	}
 }
 
-func (nm *NameMap) Map(fromDomain int, term string, toDomain int) (string, bool) {
+func (nm *NameMap) Map(fromDomain int, term string, toDomains ...int) (string, bool) {
 	tmap := nm.trmMaps[fromDomain]
 	trms, ok := tmap[term]
 	if ok {
-		return trms[toDomain], true
-	} else {
+		for _, to := range toDomains {
+			if to < 0 || to >= len(trms) {
+				continue
+			}
+			if res := trms[to]; len(res) > 0 {
+				return res, true
+			}
+		}
+	}
+	return term, false
+}
+
+func (nm *NameMap) MapNm(fromNm string, term string, toNames ...string) (string, bool) {
+	fromIdx := nm.DomainIdx(fromNm)
+	if fromIdx < 0 {
 		return term, false
 	}
+	toIdxs := make([]int, len(toNames))
+	for i, name := range toNames {
+		toIdxs[i] = nm.DomainIdx(name)
+	}
+	return nm.Map(fromIdx, term, toIdxs...)
 }
 
 func MustLoad(filename string) *NameMap {
@@ -106,8 +124,12 @@ func (nm *NameMap) loadTerm(term []gem.Expr) error {
 	for i := 0; i < len(nm.domIdxs); i++ {
 		switch atom := term[i].(type) {
 		case *gem.Atom:
-			tStrs[i] = atom.Str
-			nm.trmMaps[i][atom.Str] = tStrs
+			if atom.Meta() {
+				tStrs[i] = ""
+			} else {
+				tStrs[i] = atom.Str
+				nm.trmMaps[i][atom.Str] = tStrs
+			}
 		default:
 			return fmt.Errorf("name-map load: item %d is not an atom", i)
 		}
@@ -193,9 +215,17 @@ func (nm From) Verify(mapHint string, domainHint string) From {
 	return nm
 }
 
-func (fnm *From) Map(term string, toDomain int) (string, bool) {
-	res, ok := fnm.nmap.Map(fnm.fIdx, term, toDomain)
+func (fnm *From) Map(term string, toDomains ...int) (string, bool) {
+	res, ok := fnm.nmap.Map(fnm.fIdx, term, toDomains...)
 	return res, ok
+}
+
+func (fnm *From) MapNm(term string, toNames ...string) (string, bool) {
+	toIdxs := make([]int, len(toNames))
+	for i, name := range toNames {
+		toIdxs[i] = fnm.Base().DomainIdx(name)
+	}
+	return fnm.Map(term, toIdxs...)
 }
 
 func (fnm *From) Base() *NameMap { return fnm.nmap }
@@ -236,10 +266,10 @@ func (nm To) Verify(mapHint string, domainHint string) To {
 	return nm
 }
 
-func (tnm *To) Map(toDomain int, term string) (mapped string, domain int) {
+func (tnm *To) Map(fromDomain int, term string) (mapped string, domain int) {
 	for dIdx, tDom := range tnm.tIdxs {
 		var ok bool
-		mapped, ok = tnm.nmap.Map(toDomain, term, tDom)
+		mapped, ok = tnm.nmap.Map(fromDomain, term, tDom)
 		if ok {
 			return mapped, dIdx
 		}
@@ -247,12 +277,15 @@ func (tnm *To) Map(toDomain int, term string) (mapped string, domain int) {
 	return term, -1
 }
 
-func (tnm *To) Base() *NameMap { return tnm.nmap }
-
-type FromTo struct {
-	tomap *To
-	fIdx  int
+func (tnm *To) MapNm(fromName string, term string) (string, int) {
+	toIdx := tnm.Base().DomainIdx(fromName)
+	if toIdx < 0 {
+		return term, -1
+	}
+	return tnm.Map(toIdx, term)
 }
+
+func (tnm *To) Base() *NameMap { return tnm.nmap }
 
 func (fnm From) To(appendStd bool, toDomains ...string) FromTo {
 	toMap := fnm.Base().To(appendStd, toDomains...)
@@ -271,6 +304,11 @@ func (tnm To) From(fromDomain string, fallback bool) FromTo {
 func (tnm To) FromStd() FromTo {
 	res := FromTo{&tnm, tnm.Base().stdDom}
 	return res
+}
+
+type FromTo struct {
+	tomap *To
+	fIdx  int
 }
 
 func (nm *FromTo) Check(mapHint string, domainHint string) error {

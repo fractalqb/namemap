@@ -5,7 +5,5 @@ go:
 
 install:
   - go get -u -t ./...
-  - go get golang.org/x/tools/cmd/cover
-  - go get github.com/mattn/goveralls
 
-script: $(go env GOPATH | awk 'BEGIN{FS=":"} {print $1}')/bin/goveralls -coverprofile=coverage.out -service=travis-ci -repotoken $COVERALLS_TOKEN
+script: go test -v ./...

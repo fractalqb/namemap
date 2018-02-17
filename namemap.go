@@ -12,15 +12,22 @@ import (
 	"github.com/fractalqb/xsx/table"
 )
 
-type Terms = []string
-type TermMap = map[string]Terms
+type terms = []string
+type termMap = map[string]terms
 
+// NameMap is the basic data structure to map a name from one input
+// domain to another. Use Load or MustLoad to read a NameMap from a
+// definition file.
 type NameMap struct {
 	domIdxs map[string]int
 	stdDom  int
-	trmMaps []TermMap
+	trmMaps []termMap
 }
 
+// DomainIdx returns the index of a domain given the domains
+// name. Using the index for name mapping avoids string look ups and
+// should be used in performance critical applications. If no domain
+// with the given domain name exists, -1 is returned.
 func (nm *NameMap) DomainIdx(domain string) int {
 	idx, ok := nm.domIdxs[domain]
 	if ok {
@@ -30,7 +37,21 @@ func (nm *NameMap) DomainIdx(domain string) int {
 	}
 }
 
-func (nm *NameMap) Map(fromDomain int, term string, toDomains ...int) (string, bool) {
+func (nm *NameMap) DomainName(idx int) string {
+	for nm, i := range nm.domIdxs {
+		if i == idx {
+			return nm
+		}
+	}
+	return ""
+}
+
+// Map maps 'term' from 'fromDomain' to the corresponding name in the
+// first matching 'toDomains' element. If no matching 'toDomains'
+// element is found the 'term' itself is returned as 'mapped' and
+// 'domain' is -1. Otherwise 'domain' contains the domain index of the
+// matching target domain.
+func (nm *NameMap) Map(fromDomain int, term string, toDomains ...int) (mapped string, domain int) {
 	tmap := nm.trmMaps[fromDomain]
 	trms, ok := tmap[term]
 	if ok {
@@ -38,18 +59,20 @@ func (nm *NameMap) Map(fromDomain int, term string, toDomains ...int) (string, b
 			if to < 0 || to >= len(trms) {
 				continue
 			}
-			if res := trms[to]; len(res) > 0 {
-				return res, true
+			if mapped = trms[to]; len(mapped) > 0 {
+				return mapped, to
 			}
 		}
 	}
-	return term, false
+	return term, -1
 }
 
-func (nm *NameMap) MapNm(fromNm string, term string, toNames ...string) (string, bool) {
+// MapNm determines all domain indices for 'fromNm' and 'toNames' and
+// calls NameMap.Map().
+func (nm *NameMap) MapNm(fromNm string, term string, toNames ...string) (string, int) {
 	fromIdx := nm.DomainIdx(fromNm)
 	if fromIdx < 0 {
-		return term, false
+		return term, -1
 	}
 	toIdxs := make([]int, len(toNames))
 	for i, name := range toNames {
@@ -58,6 +81,8 @@ func (nm *NameMap) MapNm(fromNm string, term string, toNames ...string) (string,
 	return nm.Map(fromIdx, term, toIdxs...)
 }
 
+// MustLoad loads the NameMap defintion from file 'filename' and
+// panics if an error occurs.
 func MustLoad(filename string) *NameMap {
 	frd, err := os.Open(filename)
 	if err != nil {
@@ -72,15 +97,18 @@ func MustLoad(filename string) *NameMap {
 	return res
 }
 
+// Load load the definition of the NameMap from 'rd'. Definitions are
+// texts formatted as an XSX table (see
+// https://godoc.org/github.com/fractalqb/xsx/table).
 func (nm *NameMap) Load(rd io.Reader) (err error) {
 	xrd := xsx.NewPullParser(bufio.NewReader(rd))
 	tDef, err := nm.loadDoms(xrd)
 	if err != nil {
 		return err
 	}
-	nm.trmMaps = make([]TermMap, len(nm.domIdxs))
+	nm.trmMaps = make([]termMap, len(nm.domIdxs))
 	for i := 0; i < len(nm.trmMaps); i++ {
-		nm.trmMaps[i] = make(TermMap)
+		nm.trmMaps[i] = make(termMap)
 	}
 	for row, err := tDef.NextRow(xrd, nil); row != nil; row, err = tDef.NextRow(xrd, nil) {
 		if err != nil {
@@ -167,7 +195,7 @@ func (nm *NameMap) Save(wr io.Writer) (err error) {
 
 func (nm *NameMap) ForEach(domain int, apply func(value string)) {
 	tmap := nm.trmMaps[domain]
-	for t, _ := range tmap {
+	for t := range tmap {
 		apply(t)
 	}
 }
@@ -215,12 +243,12 @@ func (nm From) Verify(mapHint string, domainHint string) From {
 	return nm
 }
 
-func (fnm *From) Map(term string, toDomains ...int) (string, bool) {
-	res, ok := fnm.nmap.Map(fnm.fIdx, term, toDomains...)
-	return res, ok
+func (fnm *From) Map(term string, toDomains ...int) (mapped string, domain int) {
+	mapped, domain = fnm.nmap.Map(fnm.fIdx, term, toDomains...)
+	return mapped, domain
 }
 
-func (fnm *From) MapNm(term string, toNames ...string) (string, bool) {
+func (fnm *From) MapNm(term string, toNames ...string) (string, int) {
 	toIdxs := make([]int, len(toNames))
 	for i, name := range toNames {
 		toIdxs[i] = fnm.Base().DomainIdx(name)
@@ -268,9 +296,8 @@ func (nm To) Verify(mapHint string, domainHint string) To {
 
 func (tnm *To) Map(fromDomain int, term string) (mapped string, domain int) {
 	for dIdx, tDom := range tnm.tIdxs {
-		var ok bool
-		mapped, ok = tnm.nmap.Map(fromDomain, term, tDom)
-		if ok {
+		mapped, domain = tnm.nmap.Map(fromDomain, term, tDom)
+		if domain >= 0 {
 			return mapped, dIdx
 		}
 	}

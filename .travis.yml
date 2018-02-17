@@ -4,6 +4,10 @@ go:
   - 1.9.x
 
 install:
-  - go get -u -t
+  - go get -u -t ./...
+  - go get code.google.com/p/go.tools/cmd/cover
+  - go get github.com/mattn/goveralls
 
-script: go test -v ./...
+script:
+  - PATH="$HOME/gopath/bin:$PATH"
+  - script/coverage --coveralls

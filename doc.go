@@ -14,7 +14,7 @@
 //   ( note  rem    remark  Bemerkung)
 //   ( warn  warnig warning Warnung)
 //
-// defines a map that has an 'input', 'output' domain an additionaly
+// defines a map that has an 'input', 'output' domain an additionally
 // has some natural language domains for user interfaces
 // (e.g. GUI). The 'input' domain is selected to be the standard domain.
 package namemap

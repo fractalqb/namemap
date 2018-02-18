@@ -81,7 +81,7 @@ func (nm *NameMap) MapNm(fromNm string, term string, toNames ...string) (string,
 	return nm.Map(fromIdx, term, toIdxs...)
 }
 
-// MustLoad loads the NameMap defintion from file 'filename' and
+// MustLoad loads the NameMap definition from file 'filename' and
 // panics if an error occurs.
 func MustLoad(filename string) *NameMap {
 	frd, err := os.Open(filename)

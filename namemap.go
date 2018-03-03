@@ -46,6 +46,10 @@ func (nm *NameMap) DomainName(idx int) string {
 	return ""
 }
 
+// IgnDom ignores the domain of a mapped name. This can be used for all .Map
+// and .MapNm methods if the domain is irrelevant.
+func IgnDom(mapped string, ignore int) string { return mapped }
+
 // Map maps 'term' from 'fromDomain' to the corresponding name in the
 // first matching 'toDomains' element. If no matching 'toDomains'
 // element is found the 'term' itself is returned as 'mapped' and

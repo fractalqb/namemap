@@ -19,9 +19,21 @@ type termMap = map[string]terms
 // domain to another. Use Load or MustLoad to read a NameMap from a
 // definition file.
 type NameMap struct {
-	domIdxs map[string]int
-	stdDom  int
-	trmMaps []termMap
+	domIdxs   map[string]int
+	StdDomain int
+	trmMaps   []termMap
+}
+
+func NewNameMap(domains ...string) *NameMap {
+	res := &NameMap{
+		domIdxs:   make(map[string]int),
+		StdDomain: -1,
+	}
+	for i, n := range domains {
+		res.domIdxs[n] = i
+		res.trmMaps = append(res.trmMaps, make(termMap))
+	}
+	return res
 }
 
 // DomainIdx returns the index of a domain given the domains
@@ -37,6 +49,8 @@ func (nm *NameMap) DomainIdx(domain string) int {
 	}
 }
 
+// DomainName returns the name of the domain with index idx. If the index
+// is out of range, the empty string is returned.
 func (nm *NameMap) DomainName(idx int) string {
 	for nm, i := range nm.domIdxs {
 		if i == idx {
@@ -46,9 +60,63 @@ func (nm *NameMap) DomainName(idx int) string {
 	return ""
 }
 
-// IgnDom ignores the domain of a mapped name. This can be used for all .Map
-// and .MapNm methods if the domain is irrelevant.
+// IgnDom is a utility function that ignores the domain of a mapped name. This
+// can be used for all .Map and .MapNm methods if the returned domain is
+// irrelevant.
 func IgnDom(mapped string, ignore int) string { return mapped }
+
+func (nm *NameMap) Def(domain2name map[string]string) {
+	maxDIdx := -1
+	for dom, _ := range domain2name {
+		idx, ok := nm.domIdxs[dom]
+		if !ok {
+			idx = len(nm.domIdxs)
+			nm.domIdxs[dom] = idx
+		}
+		if idx > maxDIdx {
+			maxDIdx = idx
+		}
+	}
+	for maxDIdx >= len(nm.trmMaps) {
+		nm.trmMaps = append(nm.trmMaps, make(termMap))
+	}
+	t := make(terms, maxDIdx+1)
+	for dom, name := range domain2name {
+		idx := nm.domIdxs[dom]
+		tmap := nm.trmMaps[idx]
+		tmap[name] = t
+		t[idx] = name
+	}
+}
+
+func (nm *NameMap) Set(keyDom int, keyName string, setDom int, setName string) {
+	tv := nm.trmMaps[keyDom][keyName]
+	domMax := setDom
+	if keyDom >= domMax {
+		domMax = keyDom
+	}
+	if domMax >= len(tv) {
+		ntv := make(terms, domMax+1)
+		copy(ntv, tv)
+		ntv[keyDom] = keyName
+		for dom, dnm := range ntv {
+			if len(dnm) > 0 {
+				tmap := nm.trmMaps[dom]
+				tmap[dnm] = ntv
+			}
+		}
+		tv = ntv
+	}
+	if oldName, dom := nm.Map(keyDom, keyName, setDom); dom >= 0 {
+		delete(nm.trmMaps[setDom], oldName)
+	}
+	tv[setDom] = setName
+	nm.trmMaps[setDom][setName] = tv
+}
+
+func (nm *NameMap) SetStdDomain(domain string) {
+	nm.StdDomain = nm.DomainIdx(domain)
+}
 
 // Map maps 'term' from 'fromDomain' to the corresponding name in the
 // first matching 'toDomains' element. If no matching 'toDomains'
@@ -126,23 +194,33 @@ func (nm *NameMap) Load(rd io.Reader) (err error) {
 	return nil
 }
 
+func (nm *NameMap) LoadFile(name string) error {
+	rd, err := os.Open(name)
+	if err != nil {
+		return err
+	}
+	defer rd.Close()
+	err = nm.Load(rd)
+	return err
+}
+
 func (nm *NameMap) loadDoms(xrd *xsx.PullParser) (table.Definition, error) {
 	tDef, err := table.ReadDef(xrd)
 	if err != nil {
 		return nil, err
 	}
 	nm.domIdxs = make(map[string]int)
-	nm.stdDom = -1
+	nm.StdDomain = -1
 	for i, col := range tDef {
 		if _, ok := nm.domIdxs[col.Name]; ok {
 			return nil, fmt.Errorf("pull namemap: duplicate domain '%s'", col.Name)
 		}
 		nm.domIdxs[col.Name] = i
 		if col.Meta {
-			if nm.stdDom >= 0 {
+			if nm.StdDomain >= 0 {
 				return nil, errors.New("pull namemap: ambiguous standard domain")
 			}
-			nm.stdDom = i
+			nm.StdDomain = i
 		}
 	}
 	if len(nm.domIdxs) == 0 {
@@ -169,29 +247,54 @@ func (nm *NameMap) loadTerm(term []gem.Expr) error {
 	return nil
 }
 
-func (nm *NameMap) Save(wr io.Writer) (err error) {
-	xpr := xsx.Pretty(wr)
+func (nm *NameMap) Save(wr io.Writer, undef string) (err error) {
+	xpr := xsx.Indenting(wr, "\t")
 	if err = xpr.Begin('[', false); err != nil {
 		return err
 	}
+	doms := make([]string, len(nm.domIdxs))
 	for dom, idx := range nm.domIdxs {
-		if err = xpr.Atom(dom, idx == nm.stdDom, xsx.Qcond); err != nil {
+		doms[idx] = dom
+	}
+	for idx, dom := range doms {
+		if err = xpr.Atom(dom, idx == nm.StdDomain, xsx.Qcond); err != nil {
 			return err
 		}
 	}
 	if err = xpr.End(); err != nil {
 		return err
 	}
-	stdTMap := nm.trmMaps[nm.stdDom]
-	for _, terms := range stdTMap {
-		if err = xpr.Begin('(', false); err != nil {
-			return err
-		}
-		for _, term := range terms {
-			xpr.Atom(term, false, xsx.Qcond)
-		}
-		if err = xpr.End(); err != nil {
-			return err
+	if err = xpr.Newline(1, 0); err != nil {
+		return err
+	}
+	if len(nm.trmMaps) > 0 {
+		tmap := nm.trmMaps[0]
+		for _, terms := range tmap {
+			if err = xpr.Begin('(', false); err != nil {
+				return err
+			}
+			for _, term := range terms {
+				if len(term) == 0 {
+					err = xpr.Atom(undef, true, xsx.Qcond)
+				} else {
+					err = xpr.Atom(term, false, xsx.Qcond)
+				}
+				if err != nil {
+					return err
+				}
+			}
+			for i := len(terms); i < len(nm.trmMaps); i++ {
+				err = xpr.Atom(undef, true, xsx.Qcond)
+				if err != nil {
+					return err
+				}
+			}
+			if err = xpr.End(); err != nil {
+				return err
+			}
+			if err = xpr.Newline(1, 0); err != nil {
+				return err
+			}
 		}
 	}
 	return nil
@@ -222,15 +325,17 @@ type From struct {
 func (nm NameMap) From(fromDomain string, fallback bool) From {
 	res := From{&nm, nm.DomainIdx(fromDomain)}
 	if res.fIdx < 0 && fallback {
-		res.fIdx = nm.stdDom
+		res.fIdx = nm.StdDomain
 	}
 	return res
 }
 
 func (nm NameMap) FromStd() From {
-	res := From{&nm, nm.stdDom}
+	res := From{&nm, nm.StdDomain}
 	return res
 }
+
+func (nm *From) FromIdx() int { return nm.fIdx }
 
 func (nm *From) Check(mapHint string, domainHint string) error {
 	if nm.fIdx < 0 {
@@ -274,14 +379,16 @@ func (nm NameMap) To(appendStd bool, toDomains ...string) To {
 		idx := nm.DomainIdx(tDom)
 		if idx >= 0 {
 			res.tIdxs = append(res.tIdxs, idx)
-			haveStd = haveStd || (idx == nm.stdDom)
+			haveStd = haveStd || (idx == nm.StdDomain)
 		}
 	}
 	if appendStd && !haveStd {
-		res.tIdxs = append(res.tIdxs, nm.stdDom)
+		res.tIdxs = append(res.tIdxs, nm.StdDomain)
 	}
 	return res
 }
+
+func (nm *To) ToIdxs() []int { return nm.tIdxs }
 
 func (nm *To) Check(mapHint string, domainHint string) error {
 	if len(nm.tIdxs) == 0 {
@@ -327,13 +434,13 @@ func (fnm From) To(appendStd bool, toDomains ...string) FromTo {
 func (tnm To) From(fromDomain string, fallback bool) FromTo {
 	res := FromTo{&tnm, tnm.Base().DomainIdx(fromDomain)}
 	if res.fIdx < 0 && fallback {
-		res.fIdx = res.Base().stdDom
+		res.fIdx = res.Base().StdDomain
 	}
 	return res
 }
 
 func (tnm To) FromStd() FromTo {
-	res := FromTo{&tnm, tnm.Base().stdDom}
+	res := FromTo{&tnm, tnm.Base().StdDomain}
 	return res
 }
 
@@ -341,6 +448,10 @@ type FromTo struct {
 	tomap *To
 	fIdx  int
 }
+
+func (nm *FromTo) FromIdx() int { return nm.fIdx }
+
+func (nm *FromTo) ToIdxs() []int { return nm.tomap.ToIdxs() }
 
 func (nm *FromTo) Check(mapHint string, domainHint string) error {
 	if nm.fIdx < 0 {

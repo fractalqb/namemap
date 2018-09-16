@@ -18,3 +18,5 @@
 // has some natural language domains for user interfaces
 // (e.g. GUI). The 'input' domain is selected to be the standard domain.
 package namemap
+
+//go:generate versioner -pkg namemap -bno build_no ./VERSION ./version.go

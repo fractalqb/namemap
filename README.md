@@ -1,8 +1,6 @@
 # namemap
-[![Build Status](https://travis-ci.org/fractalqb/namemap.svg)](https://travis-ci.org/fractalqb/namemap)
-[![codecov](https://codecov.io/gh/fractalqb/namemap/branch/master/graph/badge.svg)](https://codecov.io/gh/fractalqb/namemap)
-[![Go Report Card](https://goreportcard.com/badge/github.com/fractalqb/namemap)](https://goreportcard.com/report/github.com/fractalqb/namemap)
-[![GoDoc](https://godoc.org/github.com/fractalqb/namemap?status.svg)](https://godoc.org/github.com/fractalqb/namemap)
+
+[**Repository moved to codeberg.org**](https://codeberg.org/fractalqb/namemap)
 
 `import "git.fractalqb.de/fractalqb/namemap"`
 
